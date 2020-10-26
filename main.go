@@ -3,14 +3,19 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/aarzilli/nucular"
+	"github.com/aarzilli/nucular/style"
+	"github.com/atotto/clipboard"
 	"github.com/disintegration/imaging"
 	"github.com/gosuri/uiprogress"
+	"github.com/sqweek/dialog"
 )
 
 type lut [256]uint8
@@ -21,6 +26,11 @@ type picture struct {
 	targetPath       string
 	currentHistogram histogram
 	targetHistogram  histogram
+}
+
+var guiComponents struct {
+	sourceField      nucular.TextEditor
+	destinationField nucular.TextEditor
 }
 
 func main() {
@@ -38,12 +48,45 @@ func main() {
 	flag.IntVar(&config.threads, "threads", runtime.NumCPU(), "Number of threads to use")
 	flag.Parse()
 
+	window := nucular.NewMasterWindowSize(0, "Simple Deflicker", image.Point{400, 200}, windowUpdateFunction)
+	window.SetStyle(style.FromTheme(style.DarkTheme, 1.25))
+	window.Main()
+
+	guiComponents.sourceField.Flags = nucular.EditField
+	guiComponents.destinationField.Flags = nucular.EditField
+	os.Exit(3)
+
 	pictures := createPictureSliceFromDirectory(config.source, config.destination)
 	runDeflickering(pictures, config.rollingaverage, config.threads)
 
 	//Set number of CPU cores to use
 	runtime.GOMAXPROCS(config.threads)
 
+}
+
+func windowUpdateFunction(w *nucular.Window) {
+	w.Row(25).Dynamic(2)
+	guiComponents.sourceField.Edit(w)
+	if w.ButtonText("Browse") {
+		directory, _ := dialog.Directory().Title("Select a source directory.").Browse()
+		guiComponents.sourceField.Buffer = []rune(filepath.ToSlash(directory))
+	}
+	w.Row(25).Dynamic(2)
+	guiComponents.destinationField.Edit(w)
+	if w.ButtonText("Browse") {
+		directory, _ := dialog.Directory().Title("Select a destination directory.").Browse()
+		guiComponents.destinationField.Buffer = []rune(filepath.ToSlash(directory))
+	}
+	keys := w.Input().Keyboard.Keys
+	if len(keys) > 0 && keys[0].Rune == 22 { // Testing for Ctrl-V
+		clipboardContent, _ := clipboard.ReadAll()
+		if guiComponents.sourceField.Active {
+			guiComponents.sourceField.Paste(filepath.ToSlash(clipboardContent))
+		}
+		if guiComponents.destinationField.Active {
+			guiComponents.destinationField.Paste(filepath.ToSlash(clipboardContent))
+		}
+	}
 }
 
 func createPictureSliceFromDirectory(currentDirectory string, targetDirectory string) []picture {
