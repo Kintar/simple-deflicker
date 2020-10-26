@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/aarzilli/nucular"
 	"github.com/aarzilli/nucular/style"
-	"github.com/atotto/clipboard"
 	"github.com/disintegration/imaging"
 	"github.com/gosuri/uiprogress"
 	"github.com/sqweek/dialog"
@@ -29,18 +29,19 @@ type picture struct {
 }
 
 var guiComponents struct {
-	sourceField      nucular.TextEditor
-	destinationField nucular.TextEditor
+	sourceField         nucular.TextEditor
+	destinationField    nucular.TextEditor
+	rollingAverageField nucular.TextEditor
+}
+
+var config struct {
+	source         string
+	destination    string
+	rollingaverage int
+	threads        int
 }
 
 func main() {
-
-	var config struct {
-		source         string
-		destination    string
-		rollingaverage int
-		threads        int
-	}
 
 	flag.StringVar(&config.source, "source", ".", "Source folder")
 	flag.StringVar(&config.destination, "destination", ".", "Destination folder")
@@ -48,44 +49,54 @@ func main() {
 	flag.IntVar(&config.threads, "threads", runtime.NumCPU(), "Number of threads to use")
 	flag.Parse()
 
-	window := nucular.NewMasterWindowSize(0, "Simple Deflicker", image.Point{400, 200}, windowUpdateFunction)
-	window.SetStyle(style.FromTheme(style.DarkTheme, 1.25))
-	window.Main()
+	//Set number of CPU cores to use
+	runtime.GOMAXPROCS(config.threads)
+
+	window := nucular.NewMasterWindowSize(0, "Simple Deflicker", image.Point{300, 400}, windowUpdateFunction)
+	window.SetStyle(style.FromTheme(style.WhiteTheme, 1.25))
 
 	guiComponents.sourceField.Flags = nucular.EditField
+	guiComponents.sourceField.Buffer = []rune(config.source)
 	guiComponents.destinationField.Flags = nucular.EditField
-	os.Exit(3)
+	guiComponents.destinationField.Buffer = []rune(config.destination)
+	guiComponents.rollingAverageField.Flags = nucular.EditField
+	guiComponents.rollingAverageField.Filter = nucular.FilterDecimal
+	window.Main()
 
 	pictures := createPictureSliceFromDirectory(config.source, config.destination)
 	runDeflickering(pictures, config.rollingaverage, config.threads)
 
-	//Set number of CPU cores to use
-	runtime.GOMAXPROCS(config.threads)
-
 }
 
 func windowUpdateFunction(w *nucular.Window) {
-	w.Row(25).Dynamic(2)
+	w.Row(25).Dynamic(1)
+	w.Label("Source Directory", "LB")
 	guiComponents.sourceField.Edit(w)
+	guiComponents.sourceField.Buffer = []rune(filepath.ToSlash(string(guiComponents.sourceField.Buffer)))
+	w.Row(25).Ratio(0.333)
 	if w.ButtonText("Browse") {
 		directory, _ := dialog.Directory().Title("Select a source directory.").Browse()
 		guiComponents.sourceField.Buffer = []rune(filepath.ToSlash(directory))
 	}
-	w.Row(25).Dynamic(2)
+	w.Row(5).Dynamic(1)
+	w.Row(25).Dynamic(1)
+	w.Label("Destination Directory", "LB")
 	guiComponents.destinationField.Edit(w)
+	guiComponents.destinationField.Buffer = []rune(filepath.ToSlash(string(guiComponents.destinationField.Buffer)))
+	w.Row(25).Ratio(0.333)
 	if w.ButtonText("Browse") {
 		directory, _ := dialog.Directory().Title("Select a destination directory.").Browse()
 		guiComponents.destinationField.Buffer = []rune(filepath.ToSlash(directory))
 	}
-	keys := w.Input().Keyboard.Keys
-	if len(keys) > 0 && keys[0].Rune == 22 { // Testing for Ctrl-V
-		clipboardContent, _ := clipboard.ReadAll()
-		if guiComponents.sourceField.Active {
-			guiComponents.sourceField.Paste(filepath.ToSlash(clipboardContent))
-		}
-		if guiComponents.destinationField.Active {
-			guiComponents.destinationField.Paste(filepath.ToSlash(clipboardContent))
-		}
+	w.Row(25).Dynamic(1)
+	w.Label("Rolling average", "LB")
+	guiComponents.rollingAverageField.Edit(w)
+	w.Row(30).Dynamic(1)
+	if w.ButtonText("Start") {
+		config.source = string(guiComponents.sourceField.Buffer)
+		config.destination = string(guiComponents.destinationField.Buffer)
+		config.rollingaverage, _ = strconv.Atoi(string(guiComponents.rollingAverageField.Buffer))
+		w.Master().Close()
 	}
 }
 
@@ -158,7 +169,7 @@ func runDeflickering(pictures []picture, rollingaverage int, threads int) {
 		}
 	}
 
-	pictures = forEveryPicture(pictures, progressBars.analyze, threads, func(pic picture) picture {
+	pictures = forEveryPicture(pictures, progressBars.adjust, threads, func(pic picture) picture {
 		var img, _ = imaging.Open(pic.currentPath)
 		lut := generateLutFromHistograms(pic.currentHistogram, pic.targetHistogram)
 		img = applyLutToImage(img, lut)
