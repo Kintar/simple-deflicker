@@ -10,6 +10,7 @@ require (
 	github.com/gosuri/uilive v0.0.4 // indirect
 	github.com/gosuri/uiprogress v0.0.1
 	github.com/mattn/go-isatty v0.0.12 // indirect
+	github.com/skelterjohn/go.wde v0.0.0-20190318181201-adc3f78cdb45 // indirect
 	github.com/sqweek/dialog v0.0.0-20200911184034-8a3d98e8211d
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 )

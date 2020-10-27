@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/color"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -43,28 +44,34 @@ var config struct {
 
 func main() {
 
-	flag.StringVar(&config.source, "source", ".", "Source folder")
-	flag.StringVar(&config.destination, "destination", ".", "Destination folder")
+	flag.StringVar(&config.source, "source", "", "Source folder")
+	flag.StringVar(&config.destination, "destination", "", "Destination folder")
 	flag.IntVar(&config.rollingaverage, "rollingaverage", 10, "Number of frames to use for rolling average. 0 disables it.")
 	flag.IntVar(&config.threads, "threads", runtime.NumCPU(), "Number of threads to use")
 	flag.Parse()
+
+	//dialog.Message("%s", "No source directory has been specified.\nPlease select a directory now.").Title("Select source directory").Info()
+
+	//os.Exit(3)
 
 	//Set number of CPU cores to use
 	runtime.GOMAXPROCS(config.threads)
 
 	window := nucular.NewMasterWindowSize(0, "Simple Deflicker", image.Point{300, 400}, windowUpdateFunction)
-	window.SetStyle(style.FromTheme(style.WhiteTheme, 1.25))
+	window.SetStyle(style.FromTheme(style.DarkTheme, 1.25))
 
-	guiComponents.sourceField.Flags = nucular.EditField
+	guiComponents.sourceField.Flags = nucular.EditSelectable | nucular.EditClipboard | nucular.EditSigEnter | nucular.EditIbeamCursor
+	guiComponents.sourceField.SingleLine = true
 	guiComponents.sourceField.Buffer = []rune(config.source)
-	guiComponents.destinationField.Flags = nucular.EditField
+
+	guiComponents.destinationField.Flags = nucular.EditSelectable | nucular.EditClipboard | nucular.EditSigEnter | nucular.EditIbeamCursor
+	guiComponents.destinationField.SingleLine = true
 	guiComponents.destinationField.Buffer = []rune(config.destination)
-	guiComponents.rollingAverageField.Flags = nucular.EditField
+
+	guiComponents.rollingAverageField.Flags = nucular.EditSelectable | nucular.EditClipboard | nucular.EditSigEnter
+	guiComponents.rollingAverageField.SingleLine = true
 	guiComponents.rollingAverageField.Filter = nucular.FilterDecimal
 	window.Main()
-
-	pictures := createPictureSliceFromDirectory(config.source, config.destination)
-	runDeflickering(pictures, config.rollingaverage, config.threads)
 
 }
 
@@ -77,6 +84,10 @@ func windowUpdateFunction(w *nucular.Window) {
 	if w.ButtonText("Browse") {
 		directory, _ := dialog.Directory().Title("Select a source directory.").Browse()
 		guiComponents.sourceField.Buffer = []rune(filepath.ToSlash(directory))
+		fmt.Println(len(guiComponents.destinationField.Buffer))
+		if len(guiComponents.destinationField.Buffer) == 0 && len(guiComponents.sourceField.Buffer) > 0 {
+			guiComponents.destinationField.Buffer = []rune(filepath.Join(string(guiComponents.sourceField.Buffer), "deflickered"))
+		}
 	}
 	w.Row(5).Dynamic(1)
 	w.Row(25).Dynamic(1)
@@ -96,7 +107,11 @@ func windowUpdateFunction(w *nucular.Window) {
 		config.source = string(guiComponents.sourceField.Buffer)
 		config.destination = string(guiComponents.destinationField.Buffer)
 		config.rollingaverage, _ = strconv.Atoi(string(guiComponents.rollingAverageField.Buffer))
-		w.Master().Close()
+		w.Row(15).Dynamic(1)
+		w.LabelColored("Processing. Check console for details.", "CC", color.RGBA{255, 0, 0, 255})
+		fmt.Println("Starting")
+		pictures := createPictureSliceFromDirectory(config.source, config.destination)
+		runDeflickering(pictures, config.rollingaverage, config.threads)
 	}
 }
 
@@ -108,6 +123,7 @@ func createPictureSliceFromDirectory(currentDirectory string, targetDirectory st
 		fmt.Printf("'%v': %v\n", currentDirectory, err)
 		os.Exit(1)
 	}
+	makeDirectoryIfNotExists(targetDirectory)
 	//Prepare slice of pictures
 	for _, file := range files {
 		var fullSourcePath = filepath.Join(currentDirectory, file.Name())
